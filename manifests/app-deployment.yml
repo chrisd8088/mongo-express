@@ -1,0 +1,55 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    role: frontend
+spec:
+  selector:
+    matchLabels:
+      role: frontend
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        role: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: REGISTRY_LOGIN_SERVER/mongo-express
+        env:
+        - name: VCAP_APP_HOST
+          value: 0.0.0.0
+        - name: ME_CONFIG_MONGODB_URL
+          value: mongodb://mongo-0.mongo,mongo-1.mongo,mongo-2.mongo/db
+        - name: ME_CONFIG_SITE_COOKIESECRET
+          value: APP_COOKIE_SECRET
+        - name: ME_CONFIG_SITE_SESSIONSECRET
+          value: APP_SESSION_SECRET
+        - name: ME_CONFIG_BASICAUTH
+          value: "true"
+        - name: ME_CONFIG_BASICAUTH_USERNAME
+          value: APP_ADMIN_USERNAME
+        - name: ME_CONFIG_BASICAUTH_PASSWORD
+          value: APP_ADMIN_PASSWORD
+        ports:
+          - containerPort: 8081
+        readinessProbe:
+          httpGet:
+             path: /status
+             port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+        livenessProbe:
+          httpGet:
+            path: /status
+            port: 8081
+          initialDelaySeconds: 10
+          periodSeconds: 10

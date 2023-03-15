@@ -5,6 +5,16 @@ inputs:
     required: true
   file-share-base-name:
     default: FILE_SHARE_BASE_NAME
+  registry-login-server:
+    default: REGISTRY_LOGIN_SERVER
+  app-cookie-secret:
+    default: APP_COOKIE_SECRET
+  app-session-secret:
+    default: APP_SESSION_SECRET
+  app-admin-username:
+    default: APP_ADMIN_USERNAME
+  app-admin-password:
+    default: APP_ADMIN_PASSWORD
 
 runs:
   using: composite
@@ -12,5 +22,10 @@ runs:
     - run: |
         sed -i \
           -e "s/FILE_SHARE_BASE_NAME/${{ inputs.file-share-base-name }}/" \
+          -e "s/REGISTRY_LOGIN_SERVER/${{ inputs.registry-login-server }}/" \
+          -e "s/APP_COOKIE_SECRET/${{ inputs.app-cookie-secret }}/" \
+          -e "s/APP_SESSION_SECRET/${{ inputs.app-session-secret }}/" \
+          -e "s/APP_ADMIN_USERNAME/${{ inputs.app-admin-username }}/" \
+          -e "s/APP_ADMIN_PASSWORD/${{ inputs.app-admin-password }}/" \
           ${{ inputs.manifest }}
       shell: bash
