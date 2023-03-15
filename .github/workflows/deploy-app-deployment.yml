@@ -1,0 +1,242 @@
+name: Deploy Application and Approve
+
+on:
+  push:
+    branches:
+      - demo
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  test:
+    name: Build and Test Application
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo
+        ports:
+          - 27017:27017
+
+    steps:
+      - name: Checkout Git branch
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build application
+        run: yarn build
+
+      - name: Test application
+        run: yarn mocha
+
+      - name: Lint application code
+        run: yarn lint
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout Git branch
+        uses: actions/checkout@v3
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Docker container registry
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push application Docker image
+        run: |
+          docker build . -t ${{ secrets.REGISTRY_LOGIN_SERVER }}/mongo-express:${{ github.sha }}
+          docker push ${{ secrets.REGISTRY_LOGIN_SERVER }}/mongo-express:${{ github.sha }}
+
+  canary:
+    name: Canary Deployment
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout Git branch
+        uses: actions/checkout@v3
+
+      - name: Login to Azure and set AKS and registry configuration
+        uses: ./.github/actions/azure-login-setup
+        with:
+          credentials: ${{ secrets.AZURE_CREDENTIALS }}
+          resource-group: ${{ secrets.RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.CLUSTER_NAME }}
+          registry-login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          registry-username: ${{ secrets.REGISTRY_USERNAME }}
+          registry-password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Interpolate secrets into deployment manifest
+        uses: ./.github/actions/interpolate-manifest-secrets
+        with:
+          manifest: manifests/app-deployment.yml
+          registry-login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          app-cookie-secret: ${{ secrets.APP_COOKIE_SECRET }}
+          app-session-secret: ${{ secrets.APP_SESSION_SECRET }}
+          app-admin-username: ${{ secrets.APP_ADMIN_USERNAME }}
+          app-admin-password: ${{ secrets.APP_ADMIN_PASSWORD }}
+
+      - name: Deploy canary and baseline pods
+        uses: azure/k8s-deploy@v4
+        with:
+          action: deploy
+          strategy: canary
+          percentage: 34  # With three replicas defined by the manifest,
+                          # this calculates floor(34 * 3 / 100) = 1, so
+                          # one baseline and one canary replica are added to
+                          # the existing stable deployment, meaning the actual
+                          # canary percentage is only 20%.
+          manifests: |
+            manifests/app-deployment.yml
+          images: |
+            ${{ secrets.REGISTRY_LOGIN_SERVER }}/mongo-express:${{ github.sha }}
+          imagepullsecrets: |
+            k8s-secret
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Wait for canary and baseline pod readiness
+        run: |
+          kubectl wait pods \
+            --selector 'role=frontend,workflow/version in (baseline,canary)' \
+            --for=condition=ready --timeout=300s
+
+  approve:
+    name: Approve Canary Deployment
+    runs-on: ubuntu-latest
+    needs: canary
+    environment: demo
+
+    steps:
+      - name: Wait for approval of canary deployment
+        run: echo "Waiting for approval of canary deployment"
+
+  promote:
+    name: Promote to Full Deployment
+    runs-on: ubuntu-latest
+    needs: approve
+
+    steps:
+      - name: Checkout Git branch
+        uses: actions/checkout@v3
+
+      - name: Login to Azure and set AKS and registry configuration
+        uses: ./.github/actions/azure-login-setup
+        with:
+          credentials: ${{ secrets.AZURE_CREDENTIALS }}
+          resource-group: ${{ secrets.RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.CLUSTER_NAME }}
+          registry-login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          registry-username: ${{ secrets.REGISTRY_USERNAME }}
+          registry-password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Interpolate secrets into deployment manifest
+        uses: ./.github/actions/interpolate-manifest-secrets
+        with:
+          manifest: manifests/app-deployment.yml
+          registry-login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          app-cookie-secret: ${{ secrets.APP_COOKIE_SECRET }}
+          app-session-secret: ${{ secrets.APP_SESSION_SECRET }}
+          app-admin-username: ${{ secrets.APP_ADMIN_USERNAME }}
+          app-admin-password: ${{ secrets.APP_ADMIN_PASSWORD }}
+
+      - name: Perform full deployment
+        uses: azure/k8s-deploy@v4
+        with:
+          action: promote
+          strategy: canary
+          percentage: 34
+          manifests: |
+            manifests/app-deployment.yml
+          images: |
+            ${{ secrets.REGISTRY_LOGIN_SERVER }}/mongo-express:${{ github.sha }}
+          imagepullsecrets: |
+            k8s-secret
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Wait for canary deployment pod cleanup
+        run: |
+          kubectl wait pods \
+            --selector 'role=frontend,workflow/version in (baseline,canary)' \
+            --for=delete --timeout=300s
+
+      - name: Check full deployment pod readiness
+        run: |
+          kubectl wait pods --selector role=frontend --for condition=ready --timeout=300s
+
+  revert:
+    name: Revert to Stable Deployment
+    runs-on: ubuntu-latest
+    needs: approve
+    if: ${{ failure() }}
+
+    steps:
+      - name: Checkout Git branch
+        uses: actions/checkout@v3
+
+      - name: Login to Azure and set AKS and registry configuration
+        uses: ./.github/actions/azure-login-setup
+        with:
+          credentials: ${{ secrets.AZURE_CREDENTIALS }}
+          resource-group: ${{ secrets.RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.CLUSTER_NAME }}
+          registry-login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          registry-username: ${{ secrets.REGISTRY_USERNAME }}
+          registry-password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Interpolate secrets into deployment manifest
+        uses: ./.github/actions/interpolate-manifest-secrets
+        with:
+          manifest: manifests/app-deployment.yml
+          registry-login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          app-cookie-secret: ${{ secrets.APP_COOKIE_SECRET }}
+          app-session-secret: ${{ secrets.APP_SESSION_SECRET }}
+          app-admin-username: ${{ secrets.APP_ADMIN_USERNAME }}
+          app-admin-password: ${{ secrets.APP_ADMIN_PASSWORD }}
+
+      - name: Revert to stable deployment
+        uses: azure/k8s-deploy@v4
+        with:
+          action: reject
+          strategy: canary
+          percentage: 34
+          manifests: |
+            manifests/app-deployment.yml
+          images: |
+            ${{ secrets.REGISTRY_LOGIN_SERVER }}/mongo-express:${{ github.sha }}
+          imagepullsecrets: |
+            k8s-secret
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Wait for canary deployment pod cleanup
+        run: |
+          kubectl wait pods \
+            --selector 'role=frontend,workflow/version in (baseline,canary)' \
+            --for=delete --timeout=300s
+
+      - name: Check stable deployment pod readiness
+        run: |
+          kubectl wait pods --selector role=frontend --for condition=ready --timeout=300s
