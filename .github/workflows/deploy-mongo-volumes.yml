@@ -30,7 +30,7 @@ jobs:
           file-share-base-name: ${{ secrets.FILE_SHARE_BASE_NAME }}
 
       - name: Deploy persistent volumes for database
-        uses: Azure/k8s-deploy@v4
+        uses: azure/k8s-deploy@v4
         with:
           action: deploy
           manifests: |

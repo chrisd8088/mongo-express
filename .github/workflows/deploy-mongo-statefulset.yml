@@ -5,6 +5,7 @@ on:
 
 jobs:
   deploy:
+    name: Stateful Set Deployment
     runs-on: ubuntu-latest
 
     steps:
