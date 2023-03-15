@@ -1,0 +1,37 @@
+name: Azure Login and Setup
+
+inputs:
+  credentials:
+    required: true
+  resource-group:
+    required: true
+  cluster-name:
+    required: true
+  registry-login-server:
+    required: true
+  registry-username:
+    required: true
+  registry-password:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ inputs.credentials }}
+
+    - name: Set Azure Kubernetes Service configuration
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: ${{ inputs.resource-group }}
+        cluster-name: ${{ inputs.cluster-name }}
+
+    - name: Create Azure container registry secret
+      uses: azure/k8s-create-secret@v4
+      with:
+        container-registry-url: ${{ inputs.registry-login-server }}
+        container-registry-username: ${{ inputs.registry-username }}
+        container-registry-password: ${{ inputs.registry-password }}
+        secret-name: k8s-secret
