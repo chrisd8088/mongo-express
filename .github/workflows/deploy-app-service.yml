@@ -1,0 +1,39 @@
+name: Deploy Application Load Balancer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Load Balancer Service Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git branch
+        uses: actions/checkout@v3
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set Azure Kubernetes Service configuration
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ secrets.RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.CLUSTER_NAME }}
+
+      - name: Deploy application load balancer service
+        uses: Azure/k8s-deploy@v4
+        with:
+          action: deploy
+          manifests: |
+            manifests/app-service.yml
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Wait for service ingress IP assignment
+        run: |
+          timeout 300s sh \
+            -c 'until kubectl get service frontend --output=jsonpath='{.status.loadBalancer}' | grep ingress; do : ; done'
