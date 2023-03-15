@@ -1,0 +1,87 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mongo-vol1
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: azurefile-csi
+  mountOptions:
+    - dir_mode=0777
+    - file_mode=0777
+    - uid=0
+    - gid=0
+    - mfsymlinks
+    - cache=strict
+    - nosharesock
+  csi:
+    driver: file.csi.azure.com
+    readOnly: false
+    volumeHandle: mongo-vol1
+    volumeAttributes:
+      shareName: FILE_SHARE_BASE_NAME1
+    nodeStageSecretRef:
+      name: azure-secret
+      namespace: default
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mongo-vol2
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: azurefile-csi
+  mountOptions:
+    - dir_mode=0777
+    - file_mode=0777
+    - uid=0
+    - gid=0
+    - mfsymlinks
+    - cache=strict
+    - nosharesock
+  csi:
+    driver: file.csi.azure.com
+    readOnly: false
+    volumeHandle: mongo-vol2
+    volumeAttributes:
+      shareName: FILE_SHARE_BASE_NAME2
+    nodeStageSecretRef:
+      name: azure-secret
+      namespace: default
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mongo-vol3
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: azurefile-csi
+  mountOptions:
+    - dir_mode=0777
+    - file_mode=0777
+    - uid=0
+    - gid=0
+    - mfsymlinks
+    - cache=strict
+    - nosharesock
+  csi:
+    driver: file.csi.azure.com
+    readOnly: false
+    volumeHandle: mongo-vol3
+    volumeAttributes:
+      shareName: FILE_SHARE_BASE_NAME3
+    nodeStageSecretRef:
+      name: azure-secret
+      namespace: default
