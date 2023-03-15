@@ -1,0 +1,45 @@
+name: Deploy Database Persistent Volumes
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Persistent Volumes Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git branch
+        uses: actions/checkout@v3
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set Azure Kubernetes Service configuration
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ secrets.RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.CLUSTER_NAME }}
+
+      - name: Interpolate secrets into deployment manifest
+        uses: ./.github/actions/interpolate-manifest-secrets
+        with:
+          manifest: manifests/mongo-volumes.yml
+          file-share-base-name: ${{ secrets.FILE_SHARE_BASE_NAME }}
+
+      - name: Deploy persistent volumes for database
+        uses: Azure/k8s-deploy@v4
+        with:
+          action: deploy
+          manifests: |
+            manifests/mongo-volumes.yml
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Wait for volumes to become available
+        run: |
+          kubectl wait -f manifests/mongo-volumes.yml \
+            --for=jsonpath='{.status.phase}'=Available --timeout=300s
