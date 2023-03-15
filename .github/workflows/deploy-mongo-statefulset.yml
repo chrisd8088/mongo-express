@@ -1,0 +1,72 @@
+name: Deploy Database Stateful Set
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git branch
+        uses: actions/checkout@v3
+
+      - name: Login to Azure and set AKS and registry configuration
+        uses: ./.github/actions/azure-login-setup
+        with:
+          credentials: ${{ secrets.AZURE_CREDENTIALS }}
+          resource-group: ${{ secrets.RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.CLUSTER_NAME }}
+          registry-login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          registry-username: ${{ secrets.REGISTRY_USERNAME }}
+          registry-password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Login to Azure Docker container registry
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Deploy stateful set for database
+        uses: azure/k8s-deploy@v4
+        with:
+          action: deploy
+          manifests: |
+            manifests/mongo-statefulset.yml
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Wait for stateful set pod readiness
+        run: |
+          kubectl wait pods \
+            --selector role=mongo --for condition=ready --timeout=300s
+
+      - name: Create or update MongoDB replica set
+        run: |
+          cat <<EOF | kubectl exec -it mongo-0 -- mongosh mongodb://mongo-0.mongo
+            rs.initiate();
+            cfg = rs.conf();
+            cfg.members[0].host = "mongo-0.mongo:27017";
+            rs.reconfig(cfg, {force: true});
+            sleep(10000);
+            rs.add("mongo-1.mongo:27017");
+            sleep(10000);
+            rs.add("mongo-2.mongo:27017");
+            sleep(10000);
+          EOF
+
+      - name: Check MongoDB replica set status
+        run: |
+          kubectl exec -it mongo-0 -- mongosh mongodb://mongo-0.mongo --eval "rs.status();" >status.out
+          cat status.out
+          test $(grep -c PRIMARY status.out) -eq 1
+          test $(grep -c SECONDARY status.out) -eq 2
+
+      - name: Create or update default MongoDB database
+        run: |
+          cat <<EOF | kubectl exec -it mongo-0 -- mongosh mongodb://mongo-0.mongo
+            use db;
+            db.deployment.updateOne({version: "latest"}, {\$set: {time: "$(date +%s)"}}, {upsert: true});
+          EOF
