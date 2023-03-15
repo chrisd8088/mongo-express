@@ -1,0 +1,16 @@
+name: Interpolate Actions Secrets into Manifest
+
+inputs:
+  manifest:
+    required: true
+  file-share-base-name:
+    default: FILE_SHARE_BASE_NAME
+
+runs:
+  using: composite
+  steps:
+    - run: |
+        sed -i \
+          -e "s/FILE_SHARE_BASE_NAME/${{ inputs.file-share-base-name }}/" \
+          ${{ inputs.manifest }}
+      shell: bash
